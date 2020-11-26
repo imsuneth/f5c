@@ -18,19 +18,23 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <sys/stat.h>
+#include <sys/types.h>
+
 /*
 todo :
 Error counter for consecutive failures in the skip unreadable mode
 not all the memory allocations are needed for eventalign mode
 */
 
-core_t* init_core(const char* bamfilename, const char* fastafile,
-                  const char* fastqfile, const char* tmpfile, opt_t opt,double realtime0, int8_t mode, char *eventalignsummary) {
-    core_t* core = (core_t*)malloc(sizeof(core_t));
+core_t *init_core(const char *bamfilename, const char *fastafile,
+                  const char *fastqfile, const char *tmpfile, opt_t opt,
+                  double realtime0, int8_t mode, char *eventalignsummary) {
+    core_t *core = (core_t *)malloc(sizeof(core_t));
     MALLOC_CHK(core);
 
-    if(opt.num_iop > 1){
-        init_iop(core,opt);
+    if (opt.num_iop > 1) {
+        init_iop(core, opt);
     }
 
     // load bam file
@@ -39,7 +43,7 @@ core_t* init_core(const char* bamfilename, const char* fastafile,
 
     // load bam index file
     core->m_bam_idx = sam_index_load(core->m_bam_fh, bamfilename);
-    if(core->m_bam_idx==NULL){
+    if (core->m_bam_idx == NULL) {
         ERROR("could not load the .bai index file for %s", bamfilename);
         fprintf(stderr, "Please run 'samtools index %s'\n", bamfilename);
         exit(EXIT_FAILURE);
@@ -52,42 +56,45 @@ core_t* init_core(const char* bamfilename, const char* fastafile,
     // If processing a region of the genome, get clipping coordinates
     core->clip_start = -1;
     core->clip_end = -1;
-    if(opt.region_str == NULL){
+    if (opt.region_str == NULL) {
         core->itr = sam_itr_queryi(core->m_bam_idx, HTS_IDX_START, 0, 0);
-        if(core->itr==NULL){
-            ERROR("%s","sam_itr_queryi failed. A problem with the BAM index?");
+        if (core->itr == NULL) {
+            ERROR("%s", "sam_itr_queryi failed. A problem with the BAM index?");
             exit(EXIT_FAILURE);
         }
-    }
-    else{
+    } else {
         STDERR("Iterating over region: %s\n", opt.region_str);
-        core->itr = sam_itr_querys(core->m_bam_idx, core->m_hdr, opt.region_str);
-        if(core->itr==NULL){
-            ERROR("sam_itr_querys failed. Please check if the region string you entered [%s] is valid",opt.region_str);
+        core->itr =
+            sam_itr_querys(core->m_bam_idx, core->m_hdr, opt.region_str);
+        if (core->itr == NULL) {
+            ERROR("sam_itr_querys failed. Please check if the region string "
+                  "you entered [%s] is valid",
+                  opt.region_str);
             exit(EXIT_FAILURE);
         }
-        hts_parse_reg(opt.region_str, &(core->clip_start) , &(core->clip_end));
+        hts_parse_reg(opt.region_str, &(core->clip_start), &(core->clip_end));
     }
 
-
-    //open the bam file for writing skipped ultra long reads
-    core->ultra_long_tmp=NULL; //todo :  at the moment this is used to detect if the load balance mode is enabled. A better method in the opt flags.
-    if(tmpfile!=NULL){
+    // open the bam file for writing skipped ultra long reads
+    core->ultra_long_tmp =
+        NULL; // todo :  at the moment this is used to detect if the load
+              // balance mode is enabled. A better method in the opt flags.
+    if (tmpfile != NULL) {
         core->ultra_long_tmp = sam_open(tmpfile, "wb");
         NULL_CHK(core->ultra_long_tmp);
 
-        //write the header to the temporary file
-        int ret_sw=sam_hdr_write(core->ultra_long_tmp,core->m_hdr);
+        // write the header to the temporary file
+        int ret_sw = sam_hdr_write(core->ultra_long_tmp, core->m_hdr);
         NEG_CHK(ret_sw);
     }
 
-    if(opt.flag & F5C_WR_RAW_DUMP){
-        core->raw_dump = fopen("f5c.tmp.bin","wb");
-        F_CHK(core->raw_dump,"f5c.tmp.bin");
+    if (opt.flag & F5C_WR_RAW_DUMP) {
+        core->raw_dump = fopen("f5c.tmp.bin", "wb");
+        F_CHK(core->raw_dump, "f5c.tmp.bin");
     }
-    if(opt.flag & F5C_RD_RAW_DUMP){
-        core->raw_dump = fopen("f5c.tmp.bin","rb");
-        F_CHK(core->raw_dump,"f5c.tmp.bin");
+    if (opt.flag & F5C_RD_RAW_DUMP) {
+        core->raw_dump = fopen("f5c.tmp.bin", "rb");
+        F_CHK(core->raw_dump, "f5c.tmp.bin");
     }
 
     // reference file
@@ -98,13 +105,15 @@ core_t* init_core(const char* bamfilename, const char* fastafile,
     core->readbb = new ReadDB;
     core->readbb->load(fastqfile);
 
-    //model
-    core->model = (model_t*)malloc(sizeof(model_t) * NUM_KMER); //4096 is 4^6 which is hardcoded now
+    // model
+    core->model = (model_t *)malloc(
+        sizeof(model_t) * NUM_KMER); // 4096 is 4^6 which is hardcoded now
     MALLOC_CHK(core->model);
-    core->cpgmodel = (model_t*)malloc(sizeof(model_t) * NUM_KMER_METH); //15625 is 4^6 which os hardcoded now
+    core->cpgmodel = (model_t *)malloc(
+        sizeof(model_t) * NUM_KMER_METH); // 15625 is 4^6 which os hardcoded now
     MALLOC_CHK(core->cpgmodel);
 
-    //load the model from files
+    // load the model from files
     if (opt.model_file) {
         read_model(core->model, opt.model_file, NUM_KMER);
     } else {
@@ -118,51 +127,52 @@ core_t* init_core(const char* bamfilename, const char* fastafile,
 
     core->opt = opt;
 
-    //realtime0
-    core->realtime0=realtime0;
+    // realtime0
+    core->realtime0 = realtime0;
 
-    core->load_db_time=0;
-    core->process_db_time=0;
+    core->load_db_time = 0;
+    core->process_db_time = 0;
 
-    core->db_bam_time=0;
-    core->db_fasta_time=0;
-    core->db_fast5_time=0;
-    core->db_fast5_open_time=0;
-    core->db_fast5_read_time=0;
+    core->db_bam_time = 0;
+    core->db_fasta_time = 0;
+    core->db_fast5_time = 0;
+    core->db_fast5_open_time = 0;
+    core->db_fast5_read_time = 0;
 
-    core->event_time=0;
-    core->align_time=0;
-    core->est_scale_time=0;
-    core->meth_time=0;
+    core->event_time = 0;
+    core->align_time = 0;
+    core->est_scale_time = 0;
+    core->meth_time = 0;
 
-    //cuda stuff
+    // cuda stuff
 #ifdef HAVE_CUDA
     if (!(core->opt.flag & F5C_DISABLE_CUDA)) {
         init_cuda(core);
     }
 #endif
 
-    core->sum_bases=0;
-    core->total_reads=0; //total number mapped entries in the bam file (after filtering based on flags, mapq etc)
-    core->bad_fast5_file=0; //empty fast5 path returned by readdb, could not open fast5
-    core->ultra_long_skipped=0;
-    core->qc_fail_reads=0;
-    core->failed_calibration_reads=0;
-    core->failed_alignment_reads=0;
+    core->sum_bases = 0;
+    core->total_reads = 0; // total number mapped entries in the bam file (after
+                           // filtering based on flags, mapq etc)
+    core->bad_fast5_file =
+        0; // empty fast5 path returned by readdb, could not open fast5
+    core->ultra_long_skipped = 0;
+    core->qc_fail_reads = 0;
+    core->failed_calibration_reads = 0;
+    core->failed_alignment_reads = 0;
 
-    //eventalign related
+    // eventalign related
     core->mode = mode;
-    core->read_index=0;
-    if(mode==1){
-        if(eventalignsummary!=NULL){
-            core->event_summary_fp = fopen(eventalignsummary,"w");
-            F_CHK(core->event_summary_fp,eventalignsummary);
-        }
-        else{
-            core->event_summary_fp =NULL;
+    core->read_index = 0;
+    if (mode == 1) {
+        if (eventalignsummary != NULL) {
+            core->event_summary_fp = fopen(eventalignsummary, "w");
+            F_CHK(core->event_summary_fp, eventalignsummary);
+        } else {
+            core->event_summary_fp = NULL;
         }
 
-        if(core->opt.flag & F5C_SAM){
+        if (core->opt.flag & F5C_SAM) {
             core->sam_output = hts_open("-", "w");
         }
     }
@@ -170,7 +180,7 @@ core_t* init_core(const char* bamfilename, const char* fastafile,
     return core;
 }
 
-void free_core(core_t* core,opt_t opt) {
+void free_core(core_t *core, opt_t opt) {
     free(core->model);
     free(core->cpgmodel);
     delete core->readbb;
@@ -179,10 +189,10 @@ void free_core(core_t* core,opt_t opt) {
     bam_hdr_destroy(core->m_hdr);
     hts_idx_destroy(core->m_bam_idx);
     sam_close(core->m_bam_fh);
-    if(core->ultra_long_tmp!=NULL){
+    if (core->ultra_long_tmp != NULL) {
         sam_close(core->ultra_long_tmp);
     }
-    if(core->opt.flag&F5C_WR_RAW_DUMP || core->opt.flag&F5C_RD_RAW_DUMP){
+    if (core->opt.flag & F5C_WR_RAW_DUMP || core->opt.flag & F5C_RD_RAW_DUMP) {
         fclose(core->raw_dump);
     }
 #ifdef HAVE_CUDA
@@ -190,27 +200,27 @@ void free_core(core_t* core,opt_t opt) {
         free_cuda(core);
     }
 #endif
-    //eventalign related
-    if(core->mode==1 && core->event_summary_fp!=NULL){
+    // eventalign related
+    if (core->mode == 1 && core->event_summary_fp != NULL) {
         fclose(core->event_summary_fp);
     }
-    if(core->mode==1 && core->opt.flag & F5C_SAM){
+    if (core->mode == 1 && core->opt.flag & F5C_SAM) {
         hts_close(core->sam_output);
     }
-    if(opt.num_iop > 1){
-        free_iop(core,opt);
+    if (opt.num_iop > 1) {
+        free_iop(core, opt);
     }
     free(core);
 }
 
-db_t* init_db(core_t* core) {
-    db_t* db = (db_t*)(malloc(sizeof(db_t)));
+db_t *init_db(core_t *core) {
+    db_t *db = (db_t *)(malloc(sizeof(db_t)));
     MALLOC_CHK(db);
 
     db->capacity_bam_rec = core->opt.batch_size;
     db->n_bam_rec = 0;
 
-    db->bam_rec = (bam1_t**)(malloc(sizeof(bam1_t*) * db->capacity_bam_rec));
+    db->bam_rec = (bam1_t **)(malloc(sizeof(bam1_t *) * db->capacity_bam_rec));
     MALLOC_CHK(db->bam_rec);
 
     int32_t i = 0;
@@ -219,51 +229,53 @@ db_t* init_db(core_t* core) {
         NULL_CHK(db->bam_rec[i]);
     }
 
-    db->fasta_cache = (char**)(malloc(sizeof(char*) * db->capacity_bam_rec));
+    db->fasta_cache = (char **)(malloc(sizeof(char *) * db->capacity_bam_rec));
     MALLOC_CHK(db->fasta_cache);
-    db->read = (char**)(malloc(sizeof(char*) * db->capacity_bam_rec));
+    db->read = (char **)(malloc(sizeof(char *) * db->capacity_bam_rec));
     MALLOC_CHK(db->read);
-    db->read_len = (int32_t*)(malloc(sizeof(int32_t) * db->capacity_bam_rec));
+    db->read_len = (int32_t *)(malloc(sizeof(int32_t) * db->capacity_bam_rec));
     MALLOC_CHK(db->read_len);
-    db->read_idx = (int64_t*)(malloc(sizeof(int64_t) * db->capacity_bam_rec));
+    db->read_idx = (int64_t *)(malloc(sizeof(int64_t) * db->capacity_bam_rec));
     MALLOC_CHK(db->read_idx);
 
-    db->f5 = (fast5_t**)malloc(sizeof(fast5_t*) * db->capacity_bam_rec);
+    db->f5 = (fast5_t **)malloc(sizeof(fast5_t *) * db->capacity_bam_rec);
     MALLOC_CHK(db->f5);
 
-    db->et = (event_table*)malloc(sizeof(event_table) * db->capacity_bam_rec);
+    db->et = (event_table *)malloc(sizeof(event_table) * db->capacity_bam_rec);
     MALLOC_CHK(db->et);
 
     db->scalings =
-        (scalings_t*)malloc(sizeof(scalings_t) * db->capacity_bam_rec);
+        (scalings_t *)malloc(sizeof(scalings_t) * db->capacity_bam_rec);
     MALLOC_CHK(db->scalings);
 
     db->event_align_pairs =
-        (AlignedPair**)malloc(sizeof(AlignedPair*) * db->capacity_bam_rec);
+        (AlignedPair **)malloc(sizeof(AlignedPair *) * db->capacity_bam_rec);
     MALLOC_CHK(db->event_align_pairs);
     db->n_event_align_pairs =
-        (int32_t*)malloc(sizeof(int32_t) * db->capacity_bam_rec);
+        (int32_t *)malloc(sizeof(int32_t) * db->capacity_bam_rec);
     MALLOC_CHK(db->n_event_align_pairs);
 
-    db->event_alignment = (event_alignment_t**)malloc(
-        sizeof(event_alignment_t*) * db->capacity_bam_rec);
+    db->event_alignment = (event_alignment_t **)malloc(
+        sizeof(event_alignment_t *) * db->capacity_bam_rec);
     MALLOC_CHK(db->event_alignment);
     db->n_event_alignment =
-        (int32_t*)malloc(sizeof(int32_t) * db->capacity_bam_rec);
+        (int32_t *)malloc(sizeof(int32_t) * db->capacity_bam_rec);
     MALLOC_CHK(db->n_event_alignment);
 
     db->events_per_base =
-        (double*)malloc(sizeof(double) * db->capacity_bam_rec);
+        (double *)malloc(sizeof(double) * db->capacity_bam_rec);
     MALLOC_CHK(db->events_per_base);
 
     db->base_to_event_map =
-        (index_pair_t**)malloc(sizeof(index_pair_t*) * db->capacity_bam_rec);
+        (index_pair_t **)malloc(sizeof(index_pair_t *) * db->capacity_bam_rec);
     MALLOC_CHK(db->base_to_event_map);
 
-    db->read_stat_flag = (int32_t *)malloc(sizeof(int32_t) * db->capacity_bam_rec);
+    db->read_stat_flag =
+        (int32_t *)malloc(sizeof(int32_t) * db->capacity_bam_rec);
     MALLOC_CHK(db->read_stat_flag);
 
-    db->site_score_map = (std::map<int, ScoredSite> **)malloc(sizeof(std::map<int, ScoredSite> *) * db->capacity_bam_rec);
+    db->site_score_map = (std::map<int, ScoredSite> **)malloc(
+        sizeof(std::map<int, ScoredSite> *) * db->capacity_bam_rec);
     MALLOC_CHK(db->site_score_map);
 
     for (i = 0; i < db->capacity_bam_rec; ++i) {
@@ -271,24 +283,26 @@ db_t* init_db(core_t* core) {
         NULL_CHK(db->site_score_map[i]);
     }
 
-    db->total_reads=0;
-    db->bad_fast5_file=0;
-    db->ultra_long_skipped=0;
+    db->total_reads = 0;
+    db->bad_fast5_file = 0;
+    db->ultra_long_skipped = 0;
 
-    //eventalign related
-    if(core->mode==1){
-        db->eventalign_summary = (EventalignSummary *)malloc(sizeof(EventalignSummary) * db->capacity_bam_rec);
+    // eventalign related
+    if (core->mode == 1) {
+        db->eventalign_summary = (EventalignSummary *)malloc(
+            sizeof(EventalignSummary) * db->capacity_bam_rec);
         MALLOC_CHK(db->eventalign_summary);
 
-        db->event_alignment_result = (std::vector<event_alignment_t> **)malloc(sizeof(std::vector<event_alignment_t> *) * db->capacity_bam_rec);
+        db->event_alignment_result = (std::vector<event_alignment_t> **)malloc(
+            sizeof(std::vector<event_alignment_t> *) * db->capacity_bam_rec);
         MALLOC_CHK(db->event_alignment_result);
         for (i = 0; i < db->capacity_bam_rec; ++i) {
-            db->event_alignment_result[i] = new std::vector<event_alignment_t> ;
+            db->event_alignment_result[i] = new std::vector<event_alignment_t>;
             NULL_CHK(db->event_alignment_result[i]);
-            (db->eventalign_summary[i]).num_events=0; //done here in the same loop for efficiency
+            (db->eventalign_summary[i]).num_events =
+                0; // done here in the same loop for efficiency
         }
-    }
-    else{
+    } else {
         db->eventalign_summary = NULL;
         db->event_alignment_result = NULL;
     }
@@ -296,94 +310,91 @@ db_t* init_db(core_t* core) {
     return db;
 }
 
-ret_status_t load_db(core_t* core, db_t* db) {
-    if(core->opt.num_iop == 1){
-        return load_db1(core,db);
-    }
-    else{
+ret_status_t load_db(core_t *core, db_t *db) {
+    if (core->opt.num_iop == 1) {
+        return load_db1(core, db);
+    } else {
         if (core->opt.flag & F5C_PRINT_RAW) {
-            ERROR("%s","Printing data unsupported with --iop");
+            ERROR("%s", "Printing data unsupported with --iop");
             exit(EXIT_FAILURE);
         }
-        if (core->opt.flag & F5C_RD_RAW_DUMP){
-            ERROR("%s","Reading from raw dump is unsupported with --iop");
+        if (core->opt.flag & F5C_RD_RAW_DUMP) {
+            ERROR("%s", "Reading from raw dump is unsupported with --iop");
             assert(0);
         }
-        if(core->opt.flag & F5C_WR_RAW_DUMP){
-            ERROR("%s","Writing to raw dump is unsupported with --iop");
+        if (core->opt.flag & F5C_WR_RAW_DUMP) {
+            ERROR("%s", "Writing to raw dump is unsupported with --iop");
             exit(EXIT_FAILURE);
         }
-        return load_db2(core,db);
+        return load_db2(core, db);
     }
 }
 
-
 #ifdef WORK_STEAL
-static inline int32_t steal_work(pthread_arg_t* all_args, int32_t n_threads)
-{
+static inline int32_t steal_work(pthread_arg_t *all_args, int32_t n_threads) {
 
-	int32_t i, c_i = -1;
-	int32_t k;
-	for (i = 0; i < n_threads; ++i){
+    int32_t i, c_i = -1;
+    int32_t k;
+    for (i = 0; i < n_threads; ++i) {
         pthread_arg_t args = all_args[i];
-        //fprintf(stderr,"endi : %d, starti : %d\n",args.endi,args.starti);
-		if (args.endi-args.starti > STEAL_THRESH) {
-            //fprintf(stderr,"gap : %d\n",args.endi-args.starti);
+        // fprintf(stderr,"endi : %d, starti : %d\n",args.endi,args.starti);
+        if (args.endi - args.starti > STEAL_THRESH) {
+            // fprintf(stderr,"gap : %d\n",args.endi-args.starti);
             c_i = i;
             break;
         }
     }
-    if(c_i<0){
+    if (c_i < 0) {
         return -1;
     }
-	k = __sync_fetch_and_add(&(all_args[c_i].starti), 1);
-    //fprintf(stderr,"k : %d, end %d, start %d\n",k,all_args[c_i].endi,all_args[c_i].starti);
-	return k >= all_args[c_i].endi ? -1 : k;
+    k = __sync_fetch_and_add(&(all_args[c_i].starti), 1);
+    // fprintf(stderr,"k : %d, end %d, start
+    // %d\n",k,all_args[c_i].endi,all_args[c_i].starti);
+    return k >= all_args[c_i].endi ? -1 : k;
 }
 #endif
 
-void* pthread_single(void* voidargs) {
+void *pthread_single(void *voidargs) {
     int32_t i;
-    pthread_arg_t* args = (pthread_arg_t*)voidargs;
-    db_t* db = args->db;
-    core_t* core = args->core;
+    pthread_arg_t *args = (pthread_arg_t *)voidargs;
+    db_t *db = args->db;
+    core_t *core = args->core;
 
 #ifndef WORK_STEAL
     for (i = args->starti; i < args->endi; i++) {
-        args->func(core,db,i);
+        args->func(core, db, i);
     }
 #else
-    pthread_arg_t* all_args = (pthread_arg_t*)(args->all_pthread_args);
-    //adapted from kthread.c in minimap2
-	for (;;) {
-		i = __sync_fetch_and_add(&args->starti, 1);
-		if (i >= args->endi) {
+    pthread_arg_t *all_args = (pthread_arg_t *)(args->all_pthread_args);
+    // adapted from kthread.c in minimap2
+    for (;;) {
+        i = __sync_fetch_and_add(&args->starti, 1);
+        if (i >= args->endi) {
             break;
         }
-		args->func(core,db,i);
-	}
-	while ((i = steal_work(all_args,core->opt.num_thread)) >= 0){
-		args->func(core,db,i);
+        args->func(core, db, i);
+    }
+    while ((i = steal_work(all_args, core->opt.num_thread)) >= 0) {
+        args->func(core, db, i);
     }
 #endif
 
-    //fprintf(stderr,"Thread %d done\n",(myargs->position)/THREADS);
+    // fprintf(stderr,"Thread %d done\n",(myargs->position)/THREADS);
     pthread_exit(0);
 }
 
-
-void pthread_db(core_t* core, db_t* db, void (*func)(core_t*,db_t*,int)){
-    //create threads
+void pthread_db(core_t *core, db_t *db, void (*func)(core_t *, db_t *, int)) {
+    // create threads
     pthread_t tids[core->opt.num_thread];
     pthread_arg_t pt_args[core->opt.num_thread];
     int32_t t, ret;
     int32_t i = 0;
     int32_t num_thread = core->opt.num_thread;
     int32_t step = (db->n_bam_rec + num_thread - 1) / num_thread;
-    //todo : check for higher num of threads than the data
-    //current works but many threads are created despite
+    // todo : check for higher num of threads than the data
+    // current works but many threads are created despite
 
-    //set the data structures
+    // set the data structures
     for (t = 0; t < num_thread; t++) {
         pt_args[t].core = core;
         pt_args[t].db = db;
@@ -394,32 +405,30 @@ void pthread_db(core_t* core, db_t* db, void (*func)(core_t*,db_t*,int)){
         } else {
             pt_args[t].endi = i;
         }
-        pt_args[t].func=func;
-    #ifdef WORK_STEAL
-        pt_args[t].all_pthread_args =  (void *)pt_args;
-    #endif
-        //fprintf(stderr,"t%d : %d-%d\n",t,pt_args[t].starti,pt_args[t].endi);
-
+        pt_args[t].func = func;
+#ifdef WORK_STEAL
+        pt_args[t].all_pthread_args = (void *)pt_args;
+#endif
+        // fprintf(stderr,"t%d : %d-%d\n",t,pt_args[t].starti,pt_args[t].endi);
     }
 
-    //create threads
-    for(t = 0; t < core->opt.num_thread; t++){
+    // create threads
+    for (t = 0; t < core->opt.num_thread; t++) {
         ret = pthread_create(&tids[t], NULL, pthread_single,
-                                (void*)(&pt_args[t]));
+                             (void *)(&pt_args[t]));
         NEG_CHK(ret);
     }
 
-    //pthread joining
+    // pthread joining
     for (t = 0; t < core->opt.num_thread; t++) {
         int ret = pthread_join(tids[t], NULL);
         NEG_CHK(ret);
     }
 }
 
+void event_single(core_t *core, db_t *db, int32_t i) {
 
-void event_single(core_t* core,db_t* db, int32_t i) {
-
-    float* rawptr = db->f5[i]->rawptr;
+    float *rawptr = db->f5[i]->rawptr;
     float range = db->f5[i]->range;
     float digitisation = db->f5[i]->digitisation;
     float offset = db->f5[i]->offset;
@@ -433,73 +442,74 @@ void event_single(core_t* core,db_t* db, int32_t i) {
     db->et[i] = getevents(db->f5[i]->nsample, rawptr);
 
     // if(db->et[i].n/(float)db->read_len[i] > 20){
-    //     fprintf(stderr,"%s\tevents_per_base\t%f\tread_len\t%d\n",bam_get_qname(db->bam_rec[i]), db->et[i].n/(float)db->read_len[i],db->read_len[i]);
+    //     fprintf(stderr,"%s\tevents_per_base\t%f\tread_len\t%d\n",bam_get_qname(db->bam_rec[i]),
+    //     db->et[i].n/(float)db->read_len[i],db->read_len[i]);
     // }
 
-    //get the scalings
-    db->scalings[i] = estimate_scalings_using_mom(
-        db->read[i], db->read_len[i], core->model, db->et[i]);
-
+    // get the scalings
+    db->scalings[i] = estimate_scalings_using_mom(db->read[i], db->read_len[i],
+                                                  core->model, db->et[i]);
 }
 
-void event_db(core_t* core, db_t* db){
+void event_db(core_t *core, db_t *db) {
 
     if (core->opt.num_thread == 1) {
-        int32_t i=0;
+        int32_t i = 0;
         for (i = 0; i < db->n_bam_rec; i++) {
-            event_single(core,db,i);
+            event_single(core, db, i);
         }
 
     }
 
     else {
-        pthread_db(core,db,event_single);
+        pthread_db(core, db, event_single);
     }
-
 }
 
-void scaling_single(core_t* core, db_t* db, int32_t i){
+void scaling_single(core_t *core, db_t *db, int32_t i) {
 
     db->event_alignment[i] = NULL;
     db->n_event_alignment[i] = 0;
-    db->events_per_base[i] = 0; //todo : is double needed? not just int8?
+    db->events_per_base[i] = 0; // todo : is double needed? not just int8?
 
     int32_t n_kmers = db->read_len[i] - KMER_SIZE + 1;
-    db->base_to_event_map[i]=(index_pair_t*)(malloc(sizeof(index_pair_t) * n_kmers));
+    db->base_to_event_map[i] =
+        (index_pair_t *)(malloc(sizeof(index_pair_t) * n_kmers));
     MALLOC_CHK(db->base_to_event_map[i]);
 
     if (db->n_event_align_pairs[i] > 0) {
         // prepare data structures for the final calibration
 
-        db->event_alignment[i] = (event_alignment_t*)malloc(
+        db->event_alignment[i] = (event_alignment_t *)malloc(
             sizeof(event_alignment_t) * db->n_event_align_pairs[i]);
         MALLOC_CHK(db->event_alignment[i]);
 
         // for (int j = 0; j < n_event_align_pairs; ++j) {
-        //     fprintf(stderr, "%d-%d\n",event_align_pairs[j].ref_pos,event_align_pairs[j].read_pos);
+        //     fprintf(stderr,
+        //     "%d-%d\n",event_align_pairs[j].ref_pos,event_align_pairs[j].read_pos);
         // }
 
+        // todo : verify if this n is needed is needed
+        db->n_event_alignment[i] =
+            postalign(db->event_alignment[i], db->base_to_event_map[i],
+                      &db->events_per_base[i], db->read[i], n_kmers,
+                      db->event_align_pairs[i], db->n_event_align_pairs[i]);
 
-        //todo : verify if this n is needed is needed
-        db->n_event_alignment[i] = postalign(
-            db->event_alignment[i],db->base_to_event_map[i], &db->events_per_base[i], db->read[i],
-            n_kmers, db->event_align_pairs[i], db->n_event_align_pairs[i]);
+        // fprintf(stderr,"n_event_alignment %d\n",n_events);
 
-        //fprintf(stderr,"n_event_alignment %d\n",n_events);
-
-        // run recalibration to get the best set of scaling parameters and the residual
-        // between the (scaled) event levels and the model.
+        // run recalibration to get the best set of scaling parameters and the
+        // residual between the (scaled) event levels and the model.
 
         // internally this function will set shift/scale/etc of the pore model
         bool calibrated = recalibrate_model(
-            core->model, db->et[i], &db->scalings[i],
-            db->event_alignment[i], db->n_event_alignment[i], 1);
+            core->model, db->et[i], &db->scalings[i], db->event_alignment[i],
+            db->n_event_alignment[i], 1);
 
         // QC calibration
         if (!calibrated || db->scalings[i].var > MIN_CALIBRATION_VAR) {
             //     events[strand_idx].clear();
             free(db->event_alignment[i]);
-            //free(db->event_align_pairs[i]);
+            // free(db->event_align_pairs[i]);
             db->read_stat_flag[i] |= FAILED_CALIBRATION;
             return;
         }
@@ -510,7 +520,7 @@ void scaling_single(core_t* core, db_t* db, int32_t i){
         // Could not align, fail this read
         // this->events[strand_idx].clear();
         // this->events_per_base[strand_idx] = 0.0f;
-        //free(db->event_align_pairs[i]);
+        // free(db->event_align_pairs[i]);
         db->read_stat_flag[i] |= FAILED_ALIGNMENT;
         return;
     }
@@ -520,147 +530,317 @@ void scaling_single(core_t* core, db_t* db, int32_t i){
     if (db->events_per_base[i] > 5.0) {
         //     events[0].clear();
         //     events[1].clear();
-        //free(db->event_align_pairs[i]);
+        // free(db->event_align_pairs[i]);
         db->read_stat_flag[i] |= FAILED_QUALITY_CHK;
         return;
     }
-
-
 }
 
-void scaling_db(core_t* core, db_t* db){
+void scaling_db(core_t *core, db_t *db) {
     if (core->opt.num_thread == 1) {
-        int32_t i=0;
+        int32_t i = 0;
         for (i = 0; i < db->n_bam_rec; i++) {
-            scaling_single(core,db,i);
+            scaling_single(core, db, i);
         }
 
-    }
-    else {
-        pthread_db(core,db,scaling_single);
+    } else {
+        pthread_db(core, db, scaling_single);
     }
 }
 
-void align_single(core_t* core, db_t* db, int32_t i) {
+void dump_read(core_t *core, db_t *db, int32_t i,
+               const char *align_args_dump_dir) {
 
-    if ((db->et[i].n)/(float)(db->read_len[i]) < AVG_EVENTS_PER_KMER_MAX){
+    char foldername[40];
+    snprintf(foldername, sizeof(foldername), "%s/%d", align_args_dump_dir, i);
+    mkdir(foldername, 0700);
+
+    char filename[50];
+    FILE *fp;
+
+    // db->n_event_align_pairs[i]
+    snprintf(filename, sizeof(filename), "%s/%s", foldername,
+             "n_event_align_pairs[i].dat");
+    fp = fopen(filename, "w");
+    fwrite(&(db->n_event_align_pairs[i]), sizeof(int32_t), 1, fp);
+    fclose(fp);
+
+    // db->event_align_pairs - out_2
+    snprintf(filename, sizeof(filename), "%s/%s", foldername,
+             "event_align_pairs.dat");
+    fp = fopen(filename, "w");
+    int32_t pairs = db->n_event_align_pairs[i];
+    fwrite(db->event_align_pairs[i], sizeof(AlignedPair), pairs, fp);
+    fclose(fp);
+
+    // db->read[i] - sequence
+    snprintf(filename, sizeof(filename), "%s/%s", foldername, "read[i].dat");
+    fp = fopen(filename, "w");
+    // fprintf(stderr, "\n\n\nlast  char:%c\n\n\n\n",
+    // db->read[i][db->read_len[i]]);
+    fwrite(db->read[i], sizeof(char), db->read_len[i], fp); // without null term
+    fclose(fp);
+
+    // db->read_len[i] - sequence_len
+    snprintf(filename, sizeof(filename), "%s/%s", foldername,
+             "read_len[i].dat");
+    fp = fopen(filename, "w");
+    fwrite(&(db->read_len[i]), sizeof(int32_t), 1, fp);
+    fclose(fp);
+
+    // db->et[i] - events
+    snprintf(filename, sizeof(filename), "%s/%s", foldername, "et[i].dat");
+    fp = fopen(filename, "w");
+    fwrite(&(db->et[i]), sizeof(event_table), 1, fp);
+    size_t n_events = db->et[i].n;
+    fwrite(db->et[i].event, sizeof(event_t), n_events, fp);
+    fclose(fp);
+
+    // db->scalings[i] - scaling
+    snprintf(filename, sizeof(filename), "%s/%s", foldername,
+             "scalings[i].dat");
+    fp = fopen(filename, "w");
+    fwrite(&(db->scalings[i]), sizeof(scalings_t), 1, fp);
+    fclose(fp);
+
+    // db->f5[i]->sample_rate - sample_rate
+    snprintf(filename, sizeof(filename), "%s/%s", foldername,
+             "f5[i].sample_rate.dat");
+    fp = fopen(filename, "w");
+    fwrite(&(db->f5[i]->sample_rate), sizeof(float), 1, fp);
+    fclose(fp);
+}
+
+void load_read(core_t *core, db_t *db, int32_t i,
+               const char *align_args_dump_dir) {
+
+    char foldername[40];
+    snprintf(foldername, sizeof(foldername), "%s/%d", align_args_dump_dir, i);
+
+    char filename[50];
+    FILE *fp;
+    size_t read_count;
+    int32_t read_count2;
+
+    // db->n_event_align_pairs[i]
+    snprintf(filename, sizeof(filename), "%s/%s", foldername,
+             "n_event_align_pairs[i].dat");
+    fp = fopen(filename, "r");
+    read_count = fread(&(db->n_event_align_pairs[i]), sizeof(int32_t), 1, fp);
+    assert(read_count == 1);
+    fclose(fp);
+
+    // db->event_align_pairs - out_2
+    snprintf(filename, sizeof(filename), "%s/%s", foldername,
+             "event_align_pairs.dat");
+    fp = fopen(filename, "r");
+    int32_t pairs = db->n_event_align_pairs[i];
+    read_count2 =
+        fread(db->event_align_pairs[i], sizeof(AlignedPair), pairs, fp);
+    assert(read_count2 == pairs);
+    fclose(fp);
+
+    // db->read[i] - sequence
+    snprintf(filename, sizeof(filename), "%s/%s", foldername, "read[i].dat");
+    fp = fopen(filename, "r");
+    int32_t read_len = db->read_len[i];
+    read_count2 = fread(db->read[i], sizeof(char), read_len, fp);
+    assert(read_count2 == read_len);
+    fclose(fp);
+
+    // db->read_len[i] - sequence_len
+    snprintf(filename, sizeof(filename), "%s/%s", foldername,
+             "read_len[i].dat");
+    fp = fopen(filename, "r");
+    read_count = fread(&(db->read_len[i]), sizeof(int32_t), 1, fp);
+    assert(read_count == 1);
+    fclose(fp);
+
+    // db->et[i] - events
+    snprintf(filename, sizeof(filename), "%s/%s", foldername, "et[i].dat");
+    fp = fopen(filename, "r");
+    read_count = fread(&(db->et[i]), sizeof(event_table), 1, fp);
+    size_t n_events = db->et[i].n;
+    read_count = fread(db->et[i].event, sizeof(event_t), n_events, fp);
+    assert(read_count == n_events);
+    fclose(fp);
+
+    // core->model - models
+    snprintf(filename, sizeof(filename), "%s/%s", foldername, "model.dat");
+    fp = fopen(filename, "r");
+    read_count = fread(core->model, sizeof(model_t), NUM_KMER, fp);
+    assert(read_count == NUM_KMER);
+    fclose(fp);
+
+    // db->scalings[i] - scaling
+    snprintf(filename, sizeof(filename), "%s/%s", foldername,
+             "scalings[i].dat");
+    fp = fopen(filename, "r");
+    read_count = fread(&(db->scalings[i]), sizeof(scalings_t), 1, fp);
+    assert(read_count == 1);
+    fclose(fp);
+
+    // db->f5[i]->sample_rate - sample_rate
+    snprintf(filename, sizeof(filename), "%s/%s", foldername,
+             "f5[i].sample_rate.dat");
+    fp = fopen(filename, "r");
+    read_count = fread(&(db->f5[i]->sample_rate), sizeof(float), 1, fp);
+    assert(read_count == 1);
+    fclose(fp);
+}
+
+void dump_arguments(core_t *core, db_t *db) {
+
+    const char *align_args_dump_dir = "dump_test";
+    mkdir(align_args_dump_dir, 0700);
+    char foldername[40];
+    snprintf(foldername, sizeof(foldername), "%s", align_args_dump_dir);
+    char filename[50];
+    FILE *fp;
+
+    // db->n_bam_rec
+    snprintf(filename, sizeof(filename), "%s/%s", foldername, "n_bam_rec.dat");
+    fp = fopen(filename, "w");
+    fwrite(&(db->n_bam_rec), sizeof(int32_t), 1, fp);
+    fclose(fp);
+
+    // core->model - models
+    snprintf(filename, sizeof(filename), "%s/%s", foldername, "model.dat");
+    fp = fopen(filename, "w");
+    fwrite(core->model, sizeof(model_t), NUM_KMER, fp);
+    fclose(fp);
+
+    for (int i = 0; i < db->n_bam_rec; i++) {
+        dump_read(core, db, i, align_args_dump_dir);
+    }
+}
+
+void align_single(core_t *core, db_t *db, int32_t i) {
+
+    if ((db->et[i].n) / (float)(db->read_len[i]) < AVG_EVENTS_PER_KMER_MAX) {
         db->n_event_align_pairs[i] = align(
-                db->event_align_pairs[i], db->read[i], db->read_len[i], db->et[i],
-                core->model, db->scalings[i], db->f5[i]->sample_rate);
-            //fprintf(stderr,"readlen %d,n_events %d\n",db->read_len[i],n_event_align_pairs);
-    }
-    else{//todo : too many avg events per base - oversegmented
-        db->n_event_align_pairs[i]=0;
-        if(core->opt.verbosity > 0){
-            STDERR("Skipping over-segmented read %s with %f events per base",bam_get_qname(db->bam_rec[i]), (db->et[i].n)/(float)(db->read_len[i]));
+            db->event_align_pairs[i], db->read[i], db->read_len[i], db->et[i],
+            core->model, db->scalings[i], db->f5[i]->sample_rate);
+        // fprintf(stderr,"readlen %d,n_events
+        // %d\n",db->read_len[i],n_event_align_pairs);
+
+    } else { // todo : too many avg events per base - oversegmented
+        db->n_event_align_pairs[i] = 0;
+        if (core->opt.verbosity > 0) {
+            STDERR("Skipping over-segmented read %s with %f events per base",
+                   bam_get_qname(db->bam_rec[i]),
+                   (db->et[i].n) / (float)(db->read_len[i]));
         }
     }
 }
 
+void align_db(core_t *core, db_t *db) {
 
-void align_db(core_t* core, db_t* db) {
 #ifdef HAVE_CUDA
     if (!(core->opt.flag & F5C_DISABLE_CUDA)) {
-        //STDERR("%s","Performing on cuda");
+        // STDERR("%s","Performing on cuda");
         align_cuda(core, db);
     }
 #endif
 
     if (core->opt.flag & F5C_DISABLE_CUDA) {
-        //fprintf(stderr, "cpu\n");
+        // fprintf(stderr, "cpu\n");
         if (core->opt.num_thread == 1) {
             int i;
             for (i = 0; i < db->n_bam_rec; i++) {
                 align_single(core, db, i);
             }
+
         } else {
             pthread_db(core, db, align_single);
         }
     }
 }
 
-
-void meth_single(core_t* core, db_t* db, int32_t i){
-    if(!db->read_stat_flag[i]){
-        if(core->mode==0){
-            calculate_methylation_for_read(db->site_score_map[i], db->fasta_cache[i], db->bam_rec[i], db->read_len[i], db->et[i].event, db->base_to_event_map[i],
-            db->scalings[i], core->cpgmodel,db->events_per_base[i]);
-        }
-        else if (core->mode==1){
-            realign_read(db->event_alignment_result[i], &(db->eventalign_summary[i]),core->event_summary_fp, db->fasta_cache[i],core->m_hdr,
-                  db->bam_rec[i],db->read_len[i],
-                  i,
-                  core->clip_start,
-                  core->clip_end,
-                  &(db->et[i]), core->model,db->base_to_event_map[i],db->scalings[i],db->events_per_base[i], db->f5[i]->sample_rate);
+void meth_single(core_t *core, db_t *db, int32_t i) {
+    if (!db->read_stat_flag[i]) {
+        if (core->mode == 0) {
+            calculate_methylation_for_read(
+                db->site_score_map[i], db->fasta_cache[i], db->bam_rec[i],
+                db->read_len[i], db->et[i].event, db->base_to_event_map[i],
+                db->scalings[i], core->cpgmodel, db->events_per_base[i]);
+        } else if (core->mode == 1) {
+            realign_read(db->event_alignment_result[i],
+                         &(db->eventalign_summary[i]), core->event_summary_fp,
+                         db->fasta_cache[i], core->m_hdr, db->bam_rec[i],
+                         db->read_len[i], i, core->clip_start, core->clip_end,
+                         &(db->et[i]), core->model, db->base_to_event_map[i],
+                         db->scalings[i], db->events_per_base[i],
+                         db->f5[i]->sample_rate);
         }
     }
 }
 
-void meth_db(core_t* core, db_t* db) {
+void meth_db(core_t *core, db_t *db) {
     if (core->opt.num_thread == 1) {
         int i;
         for (i = 0; i < db->n_bam_rec; i++) {
             meth_single(core, db, i);
         }
-    }
-    else {
+    } else {
         pthread_db(core, db, meth_single);
     }
 }
 
+void process_single(core_t *core, db_t *db, int32_t i) {
 
+    event_single(core, db, i);
 
-void process_single(core_t* core, db_t* db,int32_t i) {
-
-    event_single(core,db,i);
-
-    db->event_align_pairs[i] = (AlignedPair*)malloc(
-        sizeof(AlignedPair) * db->et[i].n * 2); //todo : find a good heuristic to save memory //todo : save memory by freeing here itself
+    db->event_align_pairs[i] =
+        (AlignedPair *)malloc(sizeof(AlignedPair) * db->et[i].n *
+                              2); // todo : find a good heuristic to save memory
+                                  // //todo : save memory by freeing here itself
     MALLOC_CHK(db->event_align_pairs[i]);
 
-    align_single(core, db,i);
+    align_single(core, db, i);
 
     db->event_alignment[i] = NULL;
     db->n_event_alignment[i] = 0;
-    db->events_per_base[i] = 0; //todo : is double needed? not just float?
+    db->events_per_base[i] = 0; // todo : is double needed? not just float?
 
     int32_t n_kmers = db->read_len[i] - KMER_SIZE + 1;
-    db->base_to_event_map[i]=(index_pair_t*)(malloc(sizeof(index_pair_t) * n_kmers));
+    db->base_to_event_map[i] =
+        (index_pair_t *)(malloc(sizeof(index_pair_t) * n_kmers));
     MALLOC_CHK(db->base_to_event_map[i]);
 
     if (db->n_event_align_pairs[i] > 0) {
         // prepare data structures for the final calibration
 
-        db->event_alignment[i] = (event_alignment_t*)malloc(
+        db->event_alignment[i] = (event_alignment_t *)malloc(
             sizeof(event_alignment_t) * db->n_event_align_pairs[i]);
         MALLOC_CHK(db->event_alignment[i]);
 
         // for (int j = 0; j < n_event_align_pairs; ++j) {
-        //     fprintf(stderr, "%d-%d\n",event_align_pairs[j].ref_pos,event_align_pairs[j].read_pos);
+        //     fprintf(stderr,
+        //     "%d-%d\n",event_align_pairs[j].ref_pos,event_align_pairs[j].read_pos);
         // }
 
+        // todo : verify if this n is needed is needed
+        db->n_event_alignment[i] =
+            postalign(db->event_alignment[i], db->base_to_event_map[i],
+                      &db->events_per_base[i], db->read[i], n_kmers,
+                      db->event_align_pairs[i], db->n_event_align_pairs[i]);
 
-        //todo : verify if this n is needed is needed
-        db->n_event_alignment[i] = postalign(
-            db->event_alignment[i],db->base_to_event_map[i], &db->events_per_base[i], db->read[i],
-            n_kmers, db->event_align_pairs[i], db->n_event_align_pairs[i]);
+        // fprintf(stderr,"n_event_alignment %d\n",n_events);
 
-        //fprintf(stderr,"n_event_alignment %d\n",n_events);
-
-        // run recalibration to get the best set of scaling parameters and the residual
-        // between the (scaled) event levels and the model.
+        // run recalibration to get the best set of scaling parameters and the
+        // residual between the (scaled) event levels and the model.
 
         // internally this function will set shift/scale/etc of the pore model
         bool calibrated = recalibrate_model(
-            core->model, db->et[i], &db->scalings[i],
-            db->event_alignment[i], db->n_event_alignment[i], 1);
+            core->model, db->et[i], &db->scalings[i], db->event_alignment[i],
+            db->n_event_alignment[i], 1);
 
         // QC calibration
         if (!calibrated || db->scalings[i].var > MIN_CALIBRATION_VAR) {
             //     events[strand_idx].clear();
             free(db->event_alignment[i]);
-            //free(db->event_align_pairs[i]);
+            // free(db->event_align_pairs[i]);
             db->read_stat_flag[i] |= FAILED_CALIBRATION;
             return;
         }
@@ -671,7 +851,7 @@ void process_single(core_t* core, db_t* db,int32_t i) {
         // Could not align, fail this read
         // this->events[strand_idx].clear();
         // this->events_per_base[strand_idx] = 0.0f;
-        //free(db->event_align_pairs[i]);
+        // free(db->event_align_pairs[i]);
         db->read_stat_flag[i] |= FAILED_ALIGNMENT;
         return;
     }
@@ -681,97 +861,99 @@ void process_single(core_t* core, db_t* db,int32_t i) {
     if (db->events_per_base[i] > 5.0) {
         //     events[0].clear();
         //     events[1].clear();
-        //free(db->event_align_pairs[i]);
+        // free(db->event_align_pairs[i]);
         db->read_stat_flag[i] |= FAILED_QUALITY_CHK;
         return;
     }
 
-    if(core->mode==0){
-        calculate_methylation_for_read(db->site_score_map[i], db->fasta_cache[i], db->bam_rec[i], db->read_len[i], db->et[i].event, db->base_to_event_map[i],
-            db->scalings[i], core->cpgmodel,db->events_per_base[i]);
+    if (core->mode == 0) {
+        calculate_methylation_for_read(
+            db->site_score_map[i], db->fasta_cache[i], db->bam_rec[i],
+            db->read_len[i], db->et[i].event, db->base_to_event_map[i],
+            db->scalings[i], core->cpgmodel, db->events_per_base[i]);
     }
 
-    else if(core->mode==1){
-        //hack
-        realign_read(db->event_alignment_result[i], &(db->eventalign_summary[i]),core->event_summary_fp,db->fasta_cache[i],core->m_hdr,
-                  db->bam_rec[i],db->read_len[i],
-                  i,
-                  core->clip_start,
-                  core->clip_end,
-                  &(db->et[i]), core->model,db->base_to_event_map[i],db->scalings[i],db->events_per_base[i],db->f5[i]->sample_rate);
+    else if (core->mode == 1) {
+        // hack
+        realign_read(
+            db->event_alignment_result[i], &(db->eventalign_summary[i]),
+            core->event_summary_fp, db->fasta_cache[i], core->m_hdr,
+            db->bam_rec[i], db->read_len[i], i, core->clip_start,
+            core->clip_end, &(db->et[i]), core->model, db->base_to_event_map[i],
+            db->scalings[i], db->events_per_base[i], db->f5[i]->sample_rate);
     }
 }
 
-void process_db(core_t* core, db_t* db) {
+void process_db(core_t *core, db_t *db) {
 
     double process_start = realtime();
 
-    if((core->opt.flag&F5C_SEC_PROF) || (!(core->opt.flag & F5C_DISABLE_CUDA))){
+    if ((core->opt.flag & F5C_SEC_PROF) ||
+        (!(core->opt.flag & F5C_DISABLE_CUDA))) {
 
-        double realtime0=core->realtime0;
+        double realtime0 = core->realtime0;
         int32_t i;
 
         double event_start = realtime();
-        event_db(core,db);
+        event_db(core, db);
         double event_end = realtime();
-        core->event_time += (event_end-event_start);
+        core->event_time += (event_end - event_start);
 
         fprintf(stderr, "[%s::%.3f*%.2f] Events computed\n", __func__,
                 realtime() - realtime0, cputime() / (realtime() - realtime0));
 
         for (i = 0; i < db->n_bam_rec; i++) {
-            db->event_align_pairs[i] = (AlignedPair*)malloc(
-                sizeof(AlignedPair) * db->et[i].n * 2); //todo : find a good heuristic to save memory
+            db->event_align_pairs[i] = (AlignedPair *)malloc(
+                sizeof(AlignedPair) * db->et[i].n *
+                2); // todo : find a good heuristic to save memory
             MALLOC_CHK(db->event_align_pairs[i]);
         }
 
         double align_start = realtime();
         align_db(core, db);
         double align_end = realtime();
-        core->align_time += (align_end-align_start);
+        core->align_time += (align_end - align_start);
 
         fprintf(stderr, "[%s::%.3f*%.2f] Banded alignment done\n", __func__,
                 realtime() - realtime0, cputime() / (realtime() - realtime0));
 
         double est_scale_start = realtime();
-        scaling_db(core,db);
+        scaling_db(core, db);
         double est_scale_end = realtime();
-        core->est_scale_time += (est_scale_end-est_scale_start);
+        core->est_scale_time += (est_scale_end - est_scale_start);
 
         fprintf(stderr, "[%s::%.3f*%.2f] Scaling calibration done\n", __func__,
                 realtime() - realtime0, cputime() / (realtime() - realtime0));
 
         double meth_start = realtime();
-        meth_db(core,db);
+        meth_db(core, db);
         double meth_end = realtime();
-        core->meth_time += (meth_end-meth_start);
+        core->meth_time += (meth_end - meth_start);
 
         fprintf(stderr, "[%s::%.3f*%.2f] HMM done\n", __func__,
                 realtime() - realtime0, cputime() / (realtime() - realtime0));
 
-
-    }
-    else{
+    } else {
         if (core->opt.num_thread == 1) {
-            int32_t i=0;
+            int32_t i = 0;
             for (i = 0; i < db->n_bam_rec; i++) {
-                process_single(core,db,i);
+                process_single(core, db, i);
             }
 
+        } else {
+            pthread_db(core, db, process_single);
         }
-        else {
-            pthread_db(core,db,process_single);
-        }
-
     }
 
-    double process_end= realtime();
-    core->process_db_time += (process_end-process_start);
+    double process_end = realtime();
+    core->process_db_time += (process_end - process_start);
+
+    dump_arguments(core, db);
 
     return;
 }
 
-void output_db(core_t* core, db_t* db) {
+void output_db(core_t *core, db_t *db) {
     if (core->opt.flag & F5C_PRINT_EVENTS) {
         int32_t i = 0;
         for (i = 0; i < db->n_bam_rec; i++) {
@@ -790,13 +972,13 @@ void output_db(core_t* core, db_t* db) {
     if (core->opt.flag & F5C_PRINT_BANDED_ALN) {
         int32_t i = 0;
         for (i = 0; i < db->n_bam_rec; i++) {
-            if((db->read_stat_flag[i]) & FAILED_ALIGNMENT){
+            if ((db->read_stat_flag[i]) & FAILED_ALIGNMENT) {
                 continue;
             }
             printf(">%s\tN_ALGN_PAIR:%d\t{ref_os,read_pos}\n",
                    bam_get_qname(db->bam_rec[i]),
                    (int)db->n_event_align_pairs[i]);
-            AlignedPair* event_align_pairs = db->event_align_pairs[i];
+            AlignedPair *event_align_pairs = db->event_align_pairs[i];
             int32_t j = 0;
             for (j = 0; j < db->n_event_align_pairs[i]; j++) {
                 printf("{%d,%d}\t", event_align_pairs[j].ref_pos,
@@ -811,7 +993,8 @@ void output_db(core_t* core, db_t* db) {
         printf("read\tshift\tscale\tvar\n");
 
         for (i = 0; i < db->n_bam_rec; i++) {
-            if((db->read_stat_flag[i])&(FAILED_ALIGNMENT|FAILED_CALIBRATION)){
+            if ((db->read_stat_flag[i]) &
+                (FAILED_ALIGNMENT | FAILED_CALIBRATION)) {
                 continue;
             }
             printf("%s\t%.2lf\t%.2lf\t%.2lf\n", bam_get_qname(db->bam_rec[i]),
@@ -826,90 +1009,110 @@ void output_db(core_t* core, db_t* db) {
     core->ultra_long_skipped += db->ultra_long_skipped;
 
     int32_t i = 0;
-    for (i = 0; i < db->n_bam_rec; i++){
-        if(!db->read_stat_flag[i]){
-            char* qname = bam_get_qname(db->bam_rec[i]);
-            char* contig = core->m_hdr->target_name[db->bam_rec[i]->core.tid];
+    for (i = 0; i < db->n_bam_rec; i++) {
+        if (!db->read_stat_flag[i]) {
+            char *qname = bam_get_qname(db->bam_rec[i]);
+            char *contig = core->m_hdr->target_name[db->bam_rec[i]->core.tid];
 
-            if(core->mode==0) {
-                std::map<int, ScoredSite> *site_score_map = db->site_score_map[i];
+            if (core->mode == 0) {
+                std::map<int, ScoredSite> *site_score_map =
+                    db->site_score_map[i];
                 // write all sites for this read
-                for(auto iter = site_score_map->begin(); iter != site_score_map->end(); ++iter) {
+                for (auto iter = site_score_map->begin();
+                     iter != site_score_map->end(); ++iter) {
 
-                    const ScoredSite& ss = iter->second;
-                    double sum_ll_m = ss.ll_methylated[0]; //+ ss.ll_methylated[1];
-                    double sum_ll_u = ss.ll_unmethylated[0]; //+ ss.ll_unmethylated[1];
+                    const ScoredSite &ss = iter->second;
+                    double sum_ll_m =
+                        ss.ll_methylated[0]; //+ ss.ll_methylated[1];
+                    double sum_ll_u =
+                        ss.ll_unmethylated[0]; //+ ss.ll_unmethylated[1];
                     double diff = sum_ll_m - sum_ll_u;
 
-                    // fprintf(stderr, "%s\t%d\t%d\t", ss.chromosome.c_str(), ss.start_position, ss.end_position);
-                    // fprintf(stderr, "%s\t%.2lf\t", qname, diff);
-                    // fprintf(stderr, "%.2lf\t%.2lf\t", sum_ll_m, sum_ll_u);
-                    // fprintf(stderr, "%d\t%d\t%s\n", ss.strands_scored, ss.n_cpg, ss.sequence.c_str());
+                    // fprintf(stderr, "%s\t%d\t%d\t", ss.chromosome.c_str(),
+                    // ss.start_position, ss.end_position); fprintf(stderr,
+                    // "%s\t%.2lf\t", qname, diff); fprintf(stderr,
+                    // "%.2lf\t%.2lf\t", sum_ll_m, sum_ll_u); fprintf(stderr,
+                    // "%d\t%d\t%s\n", ss.strands_scored, ss.n_cpg,
+                    // ss.sequence.c_str());
 
                     // output only if inside the window boundaries
-                    if( !( (core->clip_start != -1 && ss.start_position < core->clip_start) ||
-                        (core->clip_end != -1 && ss.end_position >= core->clip_end) ) ) {
-                        if(core->opt.meth_out_version==1){
-                            printf("%s\t%d\t%d\t", contig, ss.start_position, ss.end_position);
-                        }
-                        else if(core->opt.meth_out_version==2){
-                            printf("%s\t%c\t%d\t%d\t", contig, bam_is_rev(db->bam_rec[i]) ? '-' : '+', ss.start_position, ss.end_position);
+                    if (!((core->clip_start != -1 &&
+                           ss.start_position < core->clip_start) ||
+                          (core->clip_end != -1 &&
+                           ss.end_position >= core->clip_end))) {
+                        if (core->opt.meth_out_version == 1) {
+                            printf("%s\t%d\t%d\t", contig, ss.start_position,
+                                   ss.end_position);
+                        } else if (core->opt.meth_out_version == 2) {
+                            printf("%s\t%c\t%d\t%d\t", contig,
+                                   bam_is_rev(db->bam_rec[i]) ? '-' : '+',
+                                   ss.start_position, ss.end_position);
                         }
                         printf("%s\t%.2lf\t", qname, diff);
                         printf("%.2lf\t%.2lf\t", sum_ll_m, sum_ll_u);
-                        printf("%d\t%d\t%s\n", ss.strands_scored, ss.n_cpg, ss.sequence.c_str());
+                        printf("%d\t%d\t%s\n", ss.strands_scored, ss.n_cpg,
+                               ss.sequence.c_str());
                     }
-
                 }
             }
 
-            else if(core->mode==1){
-                FILE* summary_fp = core->event_summary_fp;
+            else if (core->mode == 1) {
+                FILE *summary_fp = core->event_summary_fp;
                 EventalignSummary summary = db->eventalign_summary[i];
                 scalings_t scalings = db->scalings[i];
-                if(summary_fp != NULL && summary.num_events > 0) {
+                if (summary_fp != NULL && summary.num_events > 0) {
                     size_t strand_idx = 0;
-                    std::string fast5_path_str = core->readbb->get_signal_path(qname);
-                    fprintf(summary_fp, "%ld\t%s\t", (long)(db->read_idx[i]), qname);
-                    fprintf(summary_fp, "%s\t%s\t%s\t",fast5_path_str.c_str(), "dna", strand_idx == 0 ? "template" : "complement");
-                    fprintf(summary_fp, "%d\t%d\t%d\t%d\t", summary.num_events, summary.num_steps, summary.num_skips, summary.num_stays);
-                    fprintf(summary_fp, "%.2lf\t%.3lf\t%.3lf\t%.3lf\t%.3lf\n", summary.sum_duration/(db->f5[i]->sample_rate), scalings.shift, scalings.scale, 0.0, scalings.var);
+                    std::string fast5_path_str =
+                        core->readbb->get_signal_path(qname);
+                    fprintf(summary_fp, "%ld\t%s\t", (long)(db->read_idx[i]),
+                            qname);
+                    fprintf(summary_fp, "%s\t%s\t%s\t", fast5_path_str.c_str(),
+                            "dna", strand_idx == 0 ? "template" : "complement");
+                    fprintf(summary_fp, "%d\t%d\t%d\t%d\t", summary.num_events,
+                            summary.num_steps, summary.num_skips,
+                            summary.num_stays);
+                    fprintf(summary_fp, "%.2lf\t%.3lf\t%.3lf\t%.3lf\t%.3lf\n",
+                            summary.sum_duration / (db->f5[i]->sample_rate),
+                            scalings.shift, scalings.scale, 0.0, scalings.var);
                 }
-                std::vector<event_alignment_t> *event_alignment_result = db->event_alignment_result[i];
-                int8_t print_read_names = (core->opt.flag & F5C_PRINT_RNAME) ? 1 : 0;
-                int8_t scale_events = (core->opt.flag & F5C_SCALE_EVENTS) ? 1 : 0;
-                int8_t write_samples = (core->opt.flag & F5C_PRINT_SAMPLES) ? 1 : 0;
+                std::vector<event_alignment_t> *event_alignment_result =
+                    db->event_alignment_result[i];
+                int8_t print_read_names =
+                    (core->opt.flag & F5C_PRINT_RNAME) ? 1 : 0;
+                int8_t scale_events =
+                    (core->opt.flag & F5C_SCALE_EVENTS) ? 1 : 0;
+                int8_t write_samples =
+                    (core->opt.flag & F5C_PRINT_SAMPLES) ? 1 : 0;
                 int8_t sam_output = (core->opt.flag & F5C_SAM) ? 1 : 0;
 
-                if(sam_output==0){
-                    emit_event_alignment_tsv(stdout,0,&(db->et[i]),core->model,db->scalings[i],*event_alignment_result, print_read_names, scale_events, write_samples,
-                              db->read_idx[i], qname, contig, db->f5[i]->sample_rate);
-                }
-                else{
-                    emit_event_alignment_sam(core->sam_output , qname, core->m_hdr, db->bam_rec[i], *event_alignment_result);
+                if (sam_output == 0) {
+                    emit_event_alignment_tsv(
+                        stdout, 0, &(db->et[i]), core->model, db->scalings[i],
+                        *event_alignment_result, print_read_names, scale_events,
+                        write_samples, db->read_idx[i], qname, contig,
+                        db->f5[i]->sample_rate);
+                } else {
+                    emit_event_alignment_sam(core->sam_output, qname,
+                                             core->m_hdr, db->bam_rec[i],
+                                             *event_alignment_result);
                 }
             }
-        }
-        else{
-            if((db->read_stat_flag[i])&FAILED_CALIBRATION){
+        } else {
+            if ((db->read_stat_flag[i]) & FAILED_CALIBRATION) {
                 core->failed_calibration_reads++;
-            }
-            else if ((db->read_stat_flag[i])&FAILED_ALIGNMENT){
+            } else if ((db->read_stat_flag[i]) & FAILED_ALIGNMENT) {
                 core->failed_alignment_reads++;
-            }
-            else if ((db->read_stat_flag[i])&FAILED_QUALITY_CHK){
+            } else if ((db->read_stat_flag[i]) & FAILED_QUALITY_CHK) {
                 core->qc_fail_reads++;
-            }
-            else{
+            } else {
                 assert(0);
             }
         }
     }
-    //core->read_index = core->read_index + db->n_bam_rec;
-
+    // core->read_index = core->read_index + db->n_bam_rec;
 }
 
-void free_db_tmp(db_t* db) {
+void free_db_tmp(db_t *db) {
     int32_t i = 0;
     for (i = 0; i < db->n_bam_rec; ++i) {
         bam_destroy1(db->bam_rec[i]);
@@ -924,14 +1127,14 @@ void free_db_tmp(db_t* db) {
         delete db->site_score_map[i];
         db->site_score_map[i] = new std::map<int, ScoredSite>;
 
-        if(db->event_alignment_result){ //eventalign related
+        if (db->event_alignment_result) { // eventalign related
             delete db->event_alignment_result[i];
             db->event_alignment_result[i] = new std::vector<event_alignment_t>;
         }
     }
 }
 
-void free_db(db_t* db) {
+void free_db(db_t *db) {
     int32_t i = 0;
     for (i = 0; i < db->capacity_bam_rec; ++i) {
         bam_destroy1(db->bam_rec[i]);
@@ -955,11 +1158,11 @@ void free_db(db_t* db) {
         delete db->site_score_map[i];
     }
     free(db->site_score_map);
-    //eventalign related
-    if(db->eventalign_summary){
+    // eventalign related
+    if (db->eventalign_summary) {
         free(db->eventalign_summary);
     }
-    if(db->event_alignment_result){
+    if (db->event_alignment_result) {
         for (i = 0; i < db->capacity_bam_rec; ++i) {
             delete db->event_alignment_result[i];
         }
@@ -969,31 +1172,32 @@ void free_db(db_t* db) {
     free(db);
 }
 
-void init_opt(opt_t* opt) {
+void init_opt(opt_t *opt) {
     memset(opt, 0, sizeof(opt_t));
     opt->min_mapq = 20;
     opt->batch_size = 512;
-    opt->batch_size_bases = 2*1000*1000;
+    opt->batch_size_bases = 2 * 1000 * 1000;
     opt->num_thread = 8;
     opt->num_iop = 1;
-    opt->region_str = NULL; //whole genome processing if null
+    opt->region_str = NULL; // whole genome processing if null
 #ifndef HAVE_CUDA
     opt->flag |= F5C_DISABLE_CUDA;
-    opt->batch_size_bases = 5*1000*1000;
+    opt->batch_size_bases = 5 * 1000 * 1000;
 #endif
 
     opt->flag |= F5C_SKIP_UNREADABLE;
-    opt->debug_break=-1;
-    opt->ultra_thresh=100000;
+    opt->debug_break = -1;
+    opt->ultra_thresh = 100000;
 
-    opt->meth_out_version=1;
+    opt->meth_out_version = 1;
 
-    opt->cuda_block_size=64;
-    opt->cuda_dev_id=0;
-    opt->cuda_mem_frac=1.0f; //later set by cuda_init()
+    opt->cuda_block_size = 64;
+    opt->cuda_dev_id = 0;
+    opt->cuda_mem_frac = 1.0f; // later set by cuda_init()
 
-    //effective only if  CPU_GPU_PROC  is set
-    opt->cuda_max_readlen=3.0f;
-    opt->cuda_avg_events_per_kmer=2.0f; //only if CUDA_DYNAMIC_MALLOC is unset
-    opt->cuda_max_avg_events_per_kmer=5.0f;
+    // effective only if  CPU_GPU_PROC  is set
+    opt->cuda_max_readlen = 3.0f;
+    opt->cuda_avg_events_per_kmer = 2.0f; // only if CUDA_DYNAMIC_MALLOC is
+                                          // unset
+    opt->cuda_max_avg_events_per_kmer = 5.0f;
 }
