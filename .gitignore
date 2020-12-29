@@ -73,6 +73,7 @@ src/config.h
 test/ecoli_2kb_region/reads.fasta.index.readdb
 /profile.nvprof
 
+dump_*
 dump_small
 dump_large
 dump_test

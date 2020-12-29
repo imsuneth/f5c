@@ -18,8 +18,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include <sys/stat.h>
-#include <sys/types.h>
+#include "dump_f5c.h"
 
 /*
 todo :
@@ -548,190 +547,28 @@ void scaling_db(core_t *core, db_t *db) {
     }
 }
 
-void dump_read(core_t *core, db_t *db, int32_t i,
-               const char *align_args_dump_dir) {
-
-    char foldername[40];
-    snprintf(foldername, sizeof(foldername), "%s/%d", align_args_dump_dir, i);
-    mkdir(foldername, 0700);
-
-    char filename[50];
-    FILE *fp;
-
-    // db->n_event_align_pairs[i]
-    snprintf(filename, sizeof(filename), "%s/%s", foldername,
-             "n_event_align_pairs[i].dat");
-    fp = fopen(filename, "w");
-    fwrite(&(db->n_event_align_pairs[i]), sizeof(int32_t), 1, fp);
-    fclose(fp);
-
-    // db->event_align_pairs - out_2
-    snprintf(filename, sizeof(filename), "%s/%s", foldername,
-             "event_align_pairs.dat");
-    fp = fopen(filename, "w");
-    int32_t pairs = db->n_event_align_pairs[i];
-    fwrite(db->event_align_pairs[i], sizeof(AlignedPair), pairs, fp);
-    fclose(fp);
-
-    // db->read[i] - sequence
-    snprintf(filename, sizeof(filename), "%s/%s", foldername, "read[i].dat");
-    fp = fopen(filename, "w");
-    // fprintf(stderr, "\n\n\nlast  char:%c\n\n\n\n",
-    // db->read[i][db->read_len[i]]);
-    fwrite(db->read[i], sizeof(char), db->read_len[i], fp); // without null term
-    fclose(fp);
-
-    // db->read_len[i] - sequence_len
-    snprintf(filename, sizeof(filename), "%s/%s", foldername,
-             "read_len[i].dat");
-    fp = fopen(filename, "w");
-    fwrite(&(db->read_len[i]), sizeof(int32_t), 1, fp);
-    fclose(fp);
-
-    // db->et[i] - events
-    snprintf(filename, sizeof(filename), "%s/%s", foldername, "et[i].dat");
-    fp = fopen(filename, "w");
-    fwrite(&(db->et[i]), sizeof(event_table), 1, fp);
-    size_t n_events = db->et[i].n;
-    fwrite(db->et[i].event, sizeof(event_t), n_events, fp);
-    fclose(fp);
-
-    // db->scalings[i] - scaling
-    snprintf(filename, sizeof(filename), "%s/%s", foldername,
-             "scalings[i].dat");
-    fp = fopen(filename, "w");
-    fwrite(&(db->scalings[i]), sizeof(scalings_t), 1, fp);
-    fclose(fp);
-
-    // db->f5[i]->sample_rate - sample_rate
-    snprintf(filename, sizeof(filename), "%s/%s", foldername,
-             "f5[i].sample_rate.dat");
-    fp = fopen(filename, "w");
-    fwrite(&(db->f5[i]->sample_rate), sizeof(float), 1, fp);
-    fclose(fp);
-}
-
-void load_read(core_t *core, db_t *db, int32_t i,
-               const char *align_args_dump_dir) {
-
-    char foldername[40];
-    snprintf(foldername, sizeof(foldername), "%s/%d", align_args_dump_dir, i);
-
-    char filename[50];
-    FILE *fp;
-    size_t read_count;
-    int32_t read_count2;
-
-    // db->n_event_align_pairs[i]
-    snprintf(filename, sizeof(filename), "%s/%s", foldername,
-             "n_event_align_pairs[i].dat");
-    fp = fopen(filename, "r");
-    read_count = fread(&(db->n_event_align_pairs[i]), sizeof(int32_t), 1, fp);
-    assert(read_count == 1);
-    fclose(fp);
-
-    // db->event_align_pairs - out_2
-    snprintf(filename, sizeof(filename), "%s/%s", foldername,
-             "event_align_pairs.dat");
-    fp = fopen(filename, "r");
-    int32_t pairs = db->n_event_align_pairs[i];
-    read_count2 =
-        fread(db->event_align_pairs[i], sizeof(AlignedPair), pairs, fp);
-    assert(read_count2 == pairs);
-    fclose(fp);
-
-    // db->read[i] - sequence
-    snprintf(filename, sizeof(filename), "%s/%s", foldername, "read[i].dat");
-    fp = fopen(filename, "r");
-    int32_t read_len = db->read_len[i];
-    read_count2 = fread(db->read[i], sizeof(char), read_len, fp);
-    assert(read_count2 == read_len);
-    fclose(fp);
-
-    // db->read_len[i] - sequence_len
-    snprintf(filename, sizeof(filename), "%s/%s", foldername,
-             "read_len[i].dat");
-    fp = fopen(filename, "r");
-    read_count = fread(&(db->read_len[i]), sizeof(int32_t), 1, fp);
-    assert(read_count == 1);
-    fclose(fp);
-
-    // db->et[i] - events
-    snprintf(filename, sizeof(filename), "%s/%s", foldername, "et[i].dat");
-    fp = fopen(filename, "r");
-    read_count = fread(&(db->et[i]), sizeof(event_table), 1, fp);
-    size_t n_events = db->et[i].n;
-    read_count = fread(db->et[i].event, sizeof(event_t), n_events, fp);
-    assert(read_count == n_events);
-    fclose(fp);
-
-    // core->model - models
-    snprintf(filename, sizeof(filename), "%s/%s", foldername, "model.dat");
-    fp = fopen(filename, "r");
-    read_count = fread(core->model, sizeof(model_t), NUM_KMER, fp);
-    assert(read_count == NUM_KMER);
-    fclose(fp);
-
-    // db->scalings[i] - scaling
-    snprintf(filename, sizeof(filename), "%s/%s", foldername,
-             "scalings[i].dat");
-    fp = fopen(filename, "r");
-    read_count = fread(&(db->scalings[i]), sizeof(scalings_t), 1, fp);
-    assert(read_count == 1);
-    fclose(fp);
-
-    // db->f5[i]->sample_rate - sample_rate
-    snprintf(filename, sizeof(filename), "%s/%s", foldername,
-             "f5[i].sample_rate.dat");
-    fp = fopen(filename, "r");
-    read_count = fread(&(db->f5[i]->sample_rate), sizeof(float), 1, fp);
-    assert(read_count == 1);
-    fclose(fp);
-}
-
-void dump_arguments(core_t *core, db_t *db) {
-
-    const char *align_args_dump_dir = "dump_test";
-    mkdir(align_args_dump_dir, 0700);
-    char foldername[40];
-    snprintf(foldername, sizeof(foldername), "%s", align_args_dump_dir);
-    char filename[50];
-    FILE *fp;
-
-    // db->n_bam_rec
-    snprintf(filename, sizeof(filename), "%s/%s", foldername, "n_bam_rec.dat");
-    fp = fopen(filename, "w");
-    fwrite(&(db->n_bam_rec), sizeof(int32_t), 1, fp);
-    fclose(fp);
-
-    // core->model - models
-    snprintf(filename, sizeof(filename), "%s/%s", foldername, "model.dat");
-    fp = fopen(filename, "w");
-    fwrite(core->model, sizeof(model_t), NUM_KMER, fp);
-    fclose(fp);
-
-    for (int i = 0; i < db->n_bam_rec; i++) {
-        dump_read(core, db, i, align_args_dump_dir);
-    }
-}
-
 void align_single(core_t *core, db_t *db, int32_t i) {
+    // if ((db->et[i].n) / (float)(db->read_len[i]) < AVG_EVENTS_PER_KMER_MAX) {
+    // dump_one_read(core, db, i);
+    db->n_event_align_pairs[i] =
+        align(db->event_align_pairs[i], db->read[i], db->read_len[i], db->et[i],
+              core->model, db->scalings[i], db->f5[i]->sample_rate);
+    // fprintf(stderr, "readlen %d,n_events %d\n", db->read_len[i],
+    //         db->n_event_align_pairs[i]);
 
-    if ((db->et[i].n) / (float)(db->read_len[i]) < AVG_EVENTS_PER_KMER_MAX) {
-        db->n_event_align_pairs[i] = align(
-            db->event_align_pairs[i], db->read[i], db->read_len[i], db->et[i],
-            core->model, db->scalings[i], db->f5[i]->sample_rate);
-        // fprintf(stderr,"readlen %d,n_events
-        // %d\n",db->read_len[i],n_event_align_pairs);
+    // } else { // todo : too many avg events per base - oversegmented
+    // db->n_event_align_pairs[i] = 0;
+    // if (core->opt.verbosity > 0) {
+    //     STDERR("Skipping over-segmented read %s with %f events per base",
+    //            bam_get_qname(db->bam_rec[i]),
+    //            (db->et[i].n) / (float)(db->read_len[i]));
+    // }
+    // }
 
-    } else { // todo : too many avg events per base - oversegmented
-        db->n_event_align_pairs[i] = 0;
-        if (core->opt.verbosity > 0) {
-            STDERR("Skipping over-segmented read %s with %f events per base",
-                   bam_get_qname(db->bam_rec[i]),
-                   (db->et[i].n) / (float)(db->read_len[i]));
-        }
-    }
+    /* dump files start*/
+    // dump_batch_info(core, db);
+    dump_one_read(core, db, i);
+    /**dump files end**/
 }
 
 void align_db(core_t *core, db_t *db) {
@@ -948,7 +785,7 @@ void process_db(core_t *core, db_t *db) {
     double process_end = realtime();
     core->process_db_time += (process_end - process_start);
 
-    dump_arguments(core, db);
+    // dump_batch(core, db, db->batch_no);
 
     return;
 }

@@ -16,6 +16,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include "dump_meth_main.h"
+
 /* Input/processing/output interleave framework :
 unless IO_PROC_NO_INTERLEAVE is set input, processing and output are interleaved
 main thread
@@ -658,13 +660,19 @@ int meth_main(int argc, char *argv[], int8_t mode) {
         // load a databatch
         status = load_db(core, db);
 
+        dump_batch_info(core, db);
+
         fprintf(stderr, "[%s::%.3f*%.2f] %d Entries (%.1fM bases) loaded\n",
                 __func__, realtime() - realtime0,
                 cputime() / (realtime() - realtime0), status.num_reads,
                 status.num_bases / (1000.0 * 1000.0));
 
         // process a databatch
+        db->batch_no = counter;
+
         process_db(core, db);
+
+        // dump_batch(core, db, counter);
 
         fprintf(stderr, "[%s::%.3f*%.2f] %d Entries (%.1fM bases) processed\n",
                 __func__, realtime() - realtime0,
@@ -685,6 +693,7 @@ int meth_main(int argc, char *argv[], int8_t mode) {
         counter++;
     }
 
+    dump_no_of_batches(counter);
     // free the databatch
     free_db(db);
 
@@ -703,9 +712,8 @@ int meth_main(int argc, char *argv[], int8_t mode) {
         db_t *db = init_db(core);
         status = load_db(core, db);
 
-        /* dump files start*/
-
-        /**dump files end**/
+        db->batch_no = counter;
+        dump_batch_info(core, db);
 
         fprintf(stderr, "[%s::%.3f*%.2f] %d Entries (%.1fM bases) loaded\n",
                 __func__, realtime() - realtime0,
@@ -722,6 +730,7 @@ int meth_main(int argc, char *argv[], int8_t mode) {
                         __func__, realtime() - realtime0,
                         cputime() / (realtime() - realtime0), (long)tid_p);
             }
+
             slow_fast5_warn(core);
         }
         first_flag_p = 1;
@@ -772,8 +781,13 @@ int meth_main(int argc, char *argv[], int8_t mode) {
         if (opt.debug_break == counter) {
             break;
         }
+
         counter++;
     }
+
+    /**dump counter: number of batches**/
+    dump_no_of_batches(counter);
+    /**dump counter: number of batches**/
 
     // final round
     int ret = pthread_join(tid_p, NULL);
