@@ -77,3 +77,4 @@ dump_*
 dump_small
 dump_large
 dump_test
+!src/dump_*
